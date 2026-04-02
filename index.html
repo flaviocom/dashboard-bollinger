@@ -1236,6 +1236,14 @@
 
         // Formatadores
         const fmtMoney = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+        // Máscara de moeda em tempo real para input de capital (R$ 0,00)
+        function formatCurrencyBRL(input) {
+            let raw = input.value.replace(/\D/g, '');
+            if (!raw) { input.value = ''; return; }
+            let cents = parseInt(raw, 10);
+            const float = cents / 100;
+            input.value = float.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
         // 🔑 TOKEN GRATUITO BRAPI.DEV
         // Para ambientes profissionais/comerciais proxy público falha (CORS/500).
         // Crie sua conta grátis em https://brapi.dev/ e cole seu token abaixo:
@@ -1421,8 +1429,8 @@
                 
                 // Helper para renderizar a barra BB CENTRALIZADA na SMA20 (-100 / 0 / +100)
                 const renderBand = (band, isDaily) => {
-                    // Centro = SMA20 (diária) ou midpoint (semanal)
-                    const sma20 = isDaily ? band.sma20 : null;
+                    // Centro = SMA20 para ambos os timeframes (dário e semanal)
+                    const sma20 = band.sma20 || null;
                     const center = sma20 || ((band.upper + band.lower) / 2);
                     const safeUp   = (band.upper - center) > 0 ? (band.upper - center) : 1;
                     const safeDn   = (center - band.lower) > 0 ? (center - band.lower) : 1;
@@ -1461,8 +1469,8 @@
                             <span style="color:var(--text-muted);">Escala simétrica: −100 = Banda Inferior · 0 = SMA20 · +100 = Banda Superior</span>
                         </div>` : '';
 
-                    const smaDisplay = isDaily && sma20
-                        ? `<span class="font-bold" style="color:var(--accent);">SMA20 ${fmtMoney(sma20)}</span>`
+                    const smaDisplay = sma20
+                        ? `<span class="font-bold" style="color:var(--accent);">SMA20${isDaily ? '' : 'w'} ${fmtMoney(sma20)}</span>`
                         : `<span></span>`;
 
                     return `
@@ -1570,9 +1578,9 @@
                                             <span id="opt-call-${asset.ticker}"
                                                 class="text-[9px] font-mono bg-dark-700/50 text-gray-400 px-1.5 py-0.5 rounded border border-white/5 cursor-pointer"
                                                 title="Duplo clique para editar o código da opção"
-                                                data-tooltip="Código estimado da opção. Duplo clique para editar manualmente antes de copiar."
+                                                data-tooltip="${asset.call && asset.call.volume === 'Real' ? 'Ticker REAL confirmado. Duplo clique para editar manualmente.' : 'Código estimado da opção. Duplo clique para editar manualmente antes de copiar.'}"
                                                 ondblclick="editOptCode(this)"
-                                            >${estimateOptionTicker(asset.ticker, 'CALL', bbUpper)}</span>
+                                            >${asset.call && asset.call.code && asset.call.volume === 'Real' ? asset.call.code : estimateOptionTicker(asset.ticker, 'CALL', bbUpper)}</span>
                                             <span class="text-[9px] font-mono text-gray-500">${asset.call && asset.call.dte ? `(${asset.call.dte} dias)` : `(${calcDTEReal()} dias)`}</span>
                                             <button onclick="copyTicker('opt-call-${asset.ticker}', this)" class="copy-btn" data-tooltip="Copiar ticker da opção">
                                                 <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1613,9 +1621,9 @@
                                             <span id="opt-put-${asset.ticker}"
                                                 class="text-[9px] font-mono bg-dark-700/50 text-gray-400 px-1.5 py-0.5 rounded border border-white/5 cursor-pointer"
                                                 title="Duplo clique para editar o código da opção"
-                                                data-tooltip="Código estimado da opção. Duplo clique para editar manualmente antes de copiar."
+                                                data-tooltip="${asset.put && asset.put.volume === 'Real' ? 'Ticker REAL confirmado. Duplo clique para editar manualmente.' : 'Código estimado da opção. Duplo clique para editar manualmente antes de copiar.'}"
                                                 ondblclick="editOptCode(this)"
-                                            >${estimateOptionTicker(asset.ticker, 'PUT', bbLower)}</span>
+                                            >${asset.put && asset.put.code && asset.put.volume === 'Real' ? asset.put.code : estimateOptionTicker(asset.ticker, 'PUT', bbLower)}</span>
                                             <span class="text-[9px] font-mono text-gray-500">${asset.put && asset.put.dte ? `(${asset.put.dte} dias)` : `(${calcDTEReal()} dias)`}</span>
                                             <button onclick="copyTicker('opt-put-${asset.ticker}', this)" class="copy-btn" data-tooltip="Copiar ticker da opção">
                                                 <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1786,6 +1794,21 @@
         let bbLastFetch = 0;
         const BB_REFRESH_MS = 5 * 60 * 1000; // 5 minutos
 
+        // Função auxiliar reutilizável: calcula SMA20 + 2σ a partir de array de fechamentos
+        function calcBB20(closes) {
+            const slice = closes.slice(-20);
+            if (slice.length < 5) return null;
+            const n = slice.length;
+            const mean = slice.reduce((a, b) => a + b, 0) / n;
+            const variance = slice.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / n;
+            const std = Math.sqrt(variance);
+            return {
+                upper: parseFloat((mean + 2 * std).toFixed(2)),
+                lower: parseFloat((mean - 2 * std).toFixed(2)),
+                sma20: parseFloat(mean.toFixed(2))
+            };
+        }
+
         function isMarketOpen() {
             const now = new Date();
             const brt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
@@ -1817,36 +1840,58 @@
             console.log('🔵 ThetaLens BB: Calculando Bandas de Bollinger reais (20,2σ)...');
             for (const asset of assetsData) {
                 try {
-                    const url = `https://brapi.dev/api/quote/${asset.ticker}?range=1mo&interval=1d&token=${BRAPI_TOKEN}`;
-                    const resp = await fetch(url);
-                    if (!resp.ok) { console.warn(`BB: ${asset.ticker} HTTP ${resp.status}`); continue; }
-                    const json = await resp.json();
+                    // === BB DIÁRIO: range=3mo para garantir 20 fechamentos válidos ===
+                    const urlDaily = `https://brapi.dev/api/quote/${asset.ticker}?range=3mo&interval=1d&token=${BRAPI_TOKEN}`;
+                    const respDaily = await fetch(urlDaily);
+                    if (!respDaily.ok) { console.warn(`BB Diário: ${asset.ticker} HTTP ${respDaily.status}`); continue; }
+                    const jsonDaily = await respDaily.json();
 
-                    // Atualiza preço atual da resposta histórica
-                    const quote = json?.results?.[0];
+                    // Atualiza preço atual
+                    const quote = jsonDaily?.results?.[0];
                     if (quote?.regularMarketPrice) {
                         asset.price = quote.regularMarketPrice;
                         asset.change = quote.regularMarketChangePercent || 0;
                     }
 
-                    // Calcula BB(20, 2σ) com fechamentos reais
-                    const history = json?.results?.[0]?.historicalDataPrice;
-                    if (!history || history.length < 5) continue;
-                    const closes = history.filter(d => d.close && d.close > 0).map(d => d.close).slice(-20);
-                    if (closes.length < 5) continue;
+                    // Calcula BB Diário (20, 2σ)
+                    const histDaily = jsonDaily?.results?.[0]?.historicalDataPrice;
+                    if (histDaily && histDaily.length >= 5) {
+                        const closesDaily = histDaily.filter(d => d.close && d.close > 0).map(d => d.close);
+                        const bbDaily = calcBB20(closesDaily);
+                        if (bbDaily) {
+                            asset.bands.daily.upper = bbDaily.upper;
+                            asset.bands.daily.lower = bbDaily.lower;
+                            asset.bands.daily.sma20  = bbDaily.sma20;
+                        }
+                    }
 
-                    const n = closes.length;
-                    const mean = closes.reduce((a, b) => a + b) / n;
-                    const variance = closes.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n;
-                    const std = Math.sqrt(variance);
-
-                    asset.bands.daily.upper  = parseFloat((mean + 2 * std).toFixed(2));
-                    asset.bands.daily.lower  = parseFloat((mean - 2 * std).toFixed(2));
-                    asset.bands.daily.sma20  = parseFloat(mean.toFixed(2));
-
-                    const pos = Math.max(0, Math.min(100, ((asset.price - asset.bands.daily.lower) / (asset.bands.daily.upper - asset.bands.daily.lower)) * 100));
-                    console.log(`✅ ${asset.ticker} | Preço: ${fmtMoney(asset.price)} | BB\u25bc ${fmtMoney(asset.bands.daily.lower)} | SMA20 ${fmtMoney(asset.bands.daily.sma20)} | BB\u25b2 ${fmtMoney(asset.bands.daily.upper)} | Pos: ${pos.toFixed(0)}%`);
+                    const pos = asset.bands.daily.upper > asset.bands.daily.lower
+                        ? Math.max(0, Math.min(100, ((asset.price - asset.bands.daily.lower) / (asset.bands.daily.upper - asset.bands.daily.lower)) * 100))
+                        : 50;
+                    console.log(`✅ ${asset.ticker} Diário | Preço: ${fmtMoney(asset.price)} | BB▼ ${fmtMoney(asset.bands.daily.lower)} | SMA20 ${fmtMoney(asset.bands.daily.sma20)} | BB▲ ${fmtMoney(asset.bands.daily.upper)} | Pos: ${pos.toFixed(0)}%`);
                     checkRadarAlerts(asset, pos);
+
+                    await new Promise(r => setTimeout(r, 400));
+
+                    // === BB SEMANAL: range=2y&interval=1wk para 20+ semanas válidas ===
+                    try {
+                        const urlWeekly = `https://brapi.dev/api/quote/${asset.ticker}?range=2y&interval=1wk&token=${BRAPI_TOKEN}`;
+                        const respWeekly = await fetch(urlWeekly);
+                        if (respWeekly.ok) {
+                            const jsonWeekly = await respWeekly.json();
+                            const histWeekly = jsonWeekly?.results?.[0]?.historicalDataPrice;
+                            if (histWeekly && histWeekly.length >= 5) {
+                                const closesWeekly = histWeekly.filter(d => d.close && d.close > 0).map(d => d.close);
+                                const bbWeekly = calcBB20(closesWeekly);
+                                if (bbWeekly) {
+                                    asset.bands.weekly.upper = bbWeekly.upper;
+                                    asset.bands.weekly.lower = bbWeekly.lower;
+                                    asset.bands.weekly.sma20  = bbWeekly.sma20;
+                                    console.log(`✅ ${asset.ticker} Semanal | SMA20w ${fmtMoney(bbWeekly.sma20)} | BB▼ ${fmtMoney(bbWeekly.lower)} | BB▲ ${fmtMoney(bbWeekly.upper)}`);
+                                }
+                            }
+                        }
+                    } catch(ew) { console.warn(`BB Semanal error ${asset.ticker}:`, ew.message); }
 
                 } catch(e) { console.warn(`BB fetch error ${asset.ticker}:`, e.message); }
                 await new Promise(r => setTimeout(r, 400));
@@ -1906,6 +1951,13 @@
                 activeAlert: 'Operação simulada atingiu limite inicial de 5% de Risco. Monitore a posição.',
                 alertType: 'STRIKE_RISK'
             }]);
+        }
+
+        // Função de sincronização do strip de estatísticas (barra de status superior)
+        function syncStatsStrip() {
+            const now = new Date();
+            const lastUpdateEl = document.getElementById('last-update-strip');
+            if (lastUpdateEl) lastUpdateEl.textContent = now.toLocaleTimeString('pt-BR');
         }
 
         renderAssets();

@@ -534,12 +534,11 @@
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-mono">R$</span>
                 <input
                     id="capital-input"
-                    type="number"
-                    min="0"
-                    step="1000"
-                    placeholder="ex: 20000"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="0,00"
                     style="padding-left: 32px;"
-                    oninput="onCapitalChange()"
+                    oninput="formatCurrencyBRL(this); onCapitalChange()"
                     title="Informe o patrimônio disponível para calcular automaticamente o lote máximo de contratos que pode operar em cada ativo"
                 />
             </div>
@@ -1062,7 +1061,9 @@
 
         function onCapitalChange() {
             const input = document.getElementById('capital-input');
-            globalCapital = parseFloat(input.value) || 0;
+            // Parseia valor mascarado BRL (ex: "1.000,00") para float
+            const raw = input.value.replace(/\./g, '').replace(',', '.');
+            globalCapital = parseFloat(raw) || 0;
             localStorage.setItem('thetalens_capital', globalCapital);
             renderAssets(); // re-render para atualizar badges de lote
         }
@@ -2290,11 +2291,11 @@
                 updateThemeIcon(true);
             }
             
-            // Re-aplica capital salvo na UI
+            // Re-aplica capital salvo na UI (formatado como BRL)
             const savedCapital = parseFloat(localStorage.getItem('thetalens_capital')) || 0;
             if (savedCapital > 0) {
                 const el = document.getElementById('capital-input');
-                if (el) el.value = savedCapital;
+                if (el) el.value = savedCapital.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
         })();
     </script>
